@@ -129,8 +129,7 @@ int main(int argc, char* argv[]) {
 
     // Opt in only: does nothing unless an otel-endpoint file exists next to
     // the config. Started after Application::init() so the log event exists.
-    if (OtlpLogExporter::instance().start(
-            brls::Application::getPlatform()->getHomeDirectory("gmca"))) {
+    if (OtlpLogExporter::instance().start(conf.configDir())) {
         brls::Logger::info("OTLP log export enabled, endpoint {}",
                            OtlpLogExporter::instance().endpoint());
     }

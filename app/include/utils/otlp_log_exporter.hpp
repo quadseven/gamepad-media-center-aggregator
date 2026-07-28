@@ -20,10 +20,10 @@
  * or a hosted backend. Configuration follows the OpenTelemetry environment
  * variable conventions, read from files because a Switch has no environment.
  *
- *   sdmc:/switch/gmca/otel-endpoint             OTEL_EXPORTER_OTLP_ENDPOINT
- *   sdmc:/switch/gmca/otel-headers              OTEL_EXPORTER_OTLP_HEADERS
- *   sdmc:/switch/gmca/otel-resource-attributes  OTEL_RESOURCE_ATTRIBUTES
- *   sdmc:/switch/gmca/cacert.pem                optional CA bundle
+ *   <config dir>/otel-endpoint             OTEL_EXPORTER_OTLP_ENDPOINT
+ *   <config dir>/otel-headers              OTEL_EXPORTER_OTLP_HEADERS
+ *   <config dir>/otel-resource-attributes  OTEL_RESOURCE_ATTRIBUTES
+ *   <config dir>/cacert.pem                optional CA bundle
  *
  * With no endpoint file this does nothing: no thread, no subscription, no
  * allocation.
