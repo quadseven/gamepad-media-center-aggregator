@@ -1,6 +1,7 @@
 #include <borealis.hpp>
 
 #include "utils/config.hpp"
+#include "utils/otlp_log_exporter.hpp"
 #include "utils/download.hpp"
 #include "utils/offline_library.hpp"
 #include "utils/image_cache.hpp"
@@ -126,6 +127,13 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    // Opt in only: does nothing unless an otel-endpoint file exists next to
+    // the config. Started after Application::init() so the log event exists.
+    if (OtlpLogExporter::instance().start(conf.configDir())) {
+        brls::Logger::info("OTLP log export enabled, endpoint {}",
+                           OtlpLogExporter::instance().endpoint());
+    }
+
     conf.initThemes();
 
     // Scroll indicator (scrollbar) visibility — global, driven by config
@@ -216,6 +224,22 @@ int main(int argc, char* argv[]) {
 
     // Run the app
     while (brls::Application::mainLoop());
+
+    // Report what the exporter did, then stop it. It cannot log for itself:
+    // borealis fires the log event under logMtx, so an exporter that logged
+    // its own failure would generate the record causing the next failure.
+    if (OtlpLogExporter::instance().enabled()) {
+        const auto otlpStats = OtlpLogExporter::instance().stats();
+        brls::Logger::info("OTLP: accepted={} sent={} droppedFailed={} "
+                           "droppedOverflow={} postFailures={}",
+                           otlpStats.accepted, otlpStats.sent,
+                           otlpStats.droppedFailed, otlpStats.droppedOverflow,
+                           otlpStats.postFailures);
+        const std::string otlpError = OtlpLogExporter::instance().lastError();
+        if (!otlpError.empty())
+            brls::Logger::error("OTLP: last transport error: {}", otlpError);
+    }
+    OtlpLogExporter::instance().stop();
 
     ThreadPool::instance().stop();
 
