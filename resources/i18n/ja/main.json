@@ -48,9 +48,14 @@
     "prev": "前へ",
     "next": "次へ",
     "error": "再生エラー",
+    "plex_forbidden": "Plex Pass または Remote Watch Pass がない場合、Plex はサーバーのローカルネットワーク外での再生を拒否します (HTTP 403)。",
     "direct_fallback": "トランスコード失敗、直接再生します",
+    "transcode_fallback": "直接再生失敗、トランスコードで再生します",
     "episode": "エピソード",
-    "speed_up": "現在の速度 {}"
+    "speed_up": "現在の速度 {}",
+    "repeat": "リピート",
+    "repeat_one": "この動画",
+    "repeat_all": "リスト全体"
   },
   "media": {
     "sort": "並び替え",
@@ -190,6 +195,7 @@
     "eta": "残り {}",
     "completed": "ダウンロード済み",
     "failed": "ダウンロード失敗",
+    "forbidden": "サーバーに拒否されました (403)",
     "queued": "待機中",
     "no_downloads": "ダウンロードはありません",
     "confirm_remove": "このダウンロードを削除しますか？",
@@ -259,7 +265,9 @@
       "subsync": "字幕同期"
     },
     "transcode": {
-      "header": "トランスコード"
+      "header": "トランスコード",
+      "max_resolution": "トランスコードの最大解像度",
+      "resolution_limit": "ダイレクト再生にも適用"
     },
     "control": {
       "header": "再生コントロール",
@@ -324,8 +332,9 @@
       "font_a3": "任意の ttf ファイルを {}/subfont.ttf に置いてください"
     },
     "libraries": {
-      "header": "ライブラリ",
-      "description": "サイドバーのタブ（ライブラリ、プレイリスト、ウォッチリスト）を並べ替えたり非表示にしたりできます。この設定はサーバーごとに保存されます。",
+      "header": "サイドバー",
+      "description": "サイドバーのタブを並べ替えたり非表示にしたりできます。ホームとプロフィールは固定です。この設定はサーバーごとに保存されます。",
+      "offline": "オフライン時はダウンロード済みのライブラリのみ表示されます。その他のライブラリの位置は保持されます。",
       "grab": "移動",
       "drop": "確定",
       "toggle": "表示 / 非表示",
@@ -358,6 +367,7 @@
         "keyboard": "キーボード"
       },
       "config_dir": "設定ディレクトリ",
+      "config_reset": "設定ファイルが読み込めなかったため、初期化しました",
       "logout": "現在のアカウントからログアウトする \n(アプリケーションが終了します)",
       "up2date": "アプリは最新の状態です",
       "upgrade": "{} が利用可能になりました！ アップデートしますか？",
@@ -422,6 +432,7 @@
     "choose_type": "接続の種類を選択",
     "switch_title": "接続先",
     "add": "追加",
+    "dns_unresolved": "「{}」を解決できません。Switch/Vita ではサーバーの IPv4 アドレスを使用してください（例: http://192.168.1.50:8096）。.local（mDNS）や IPv6 のみの名前には対応していません。",
     "jellyfin": {
       "title_jellyfin": "Jellyfin にサインイン",
       "title_emby": "Emby にサインイン",

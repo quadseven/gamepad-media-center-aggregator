@@ -12,6 +12,16 @@ std::string getServerName(const std::string& baseUrl) {
     return jstr(j, "ServerName", "Jellyfin");
 }
 
+bool probeConnection(const std::string& baseUrl, long timeoutMs, long connectMs) {
+    try {
+        std::string resp = HTTP::get(baseUrl + std::string(apiPublicInfo), headers(""), HTTP::Timeout{timeoutMs, connectMs});
+        return !jstr(nlohmann::json::parse(resp), "Id").empty();
+    } catch (const std::exception& ex) {
+        brls::Logger::debug("jellyfin probe {} en échec : {}", baseUrl, ex.what());
+        return false;
+    }
+}
+
 LoginResult login(const std::string& baseUrl, const std::string& user, const std::string& pass) {
     nlohmann::json body = {{"Username", user}, {"Pw", pass}};
     nlohmann::json j = postSync(baseUrl + std::string(apiAuthByName), "", body.dump());
@@ -22,6 +32,7 @@ LoginResult login(const std::string& baseUrl, const std::string& user, const std
     if (j.contains("User") && j["User"].is_object()) {
         r.userId = jstr(j["User"], "Id");
         r.userName = jstr(j["User"], "Name");
+        r.userImageTag = jstr(j["User"], "PrimaryImageTag");
     }
     if (r.token.empty() || r.userId.empty()) throw std::runtime_error("Authentication failed");
     return r;

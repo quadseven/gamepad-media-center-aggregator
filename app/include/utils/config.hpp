@@ -105,6 +105,8 @@ public:
         TRANSCODEC,
         FORCE_DIRECTPLAY,
         PLAYER_VIDEO_QUALITY,  // transcode bitrate cap (bps); 0 = auto/direct play
+        PLAYER_MAX_RESOLUTION,
+        PLAYER_RESOLUTION_LIMIT,
         OSD_ON_TOGGLE,
         TOUCH_GESTURE,
         CLIP_POINT,
@@ -264,6 +266,9 @@ public:
     /// Maps the AppServer::type discriminant to a BackendType (defaults to Plex).
     /// Public so the connection switcher can tint each tile by its backend brand.
     static media::BackendType backendTypeFromString(const std::string& type);
+    /// First of `s.urls` that answers, probed the way its backend expects; ""
+    /// when none does. Blocking: call off the UI thread.
+    static std::string reachableUrl(const AppServer& s);
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(AppConfig, user_id, device, users, servers, setting, remotes, pins);
 

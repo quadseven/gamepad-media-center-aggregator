@@ -9,6 +9,7 @@
 
 #include "api/jellyfin/backend.hpp"
 #include "api/jellyfin/types.hpp"
+#include "api/media/resolution.hpp"
 #include "utils/config.hpp"
 #include "utils/misc.hpp"
 #include <borealis/core/logger.hpp>
@@ -172,12 +173,12 @@ void JellyfinBackend::getHomeHubs(
                 }
             }
 
-            // Recently Added, one row per movie/show library
+            // Recently Added, one row per movie/show/music/mixed library
             auto views = parseContainer<media::Section>(
                 getSync(b + fmt::format(fmt::runtime(apiViews), uid), tok), parseSection);
             for (auto& v : views.Items) {
                 if (v.type != media::mediaTypeMovie && v.type != media::mediaTypeShow &&
-                    v.type != media::mediaTypeArtist)
+                    v.type != media::mediaTypeArtist && v.type != media::mediaTypeMixed)
                     continue;
                 HTTP::Form f = {{"ParentId", v.key}, {"Limit", std::to_string(cnt)}, {"Fields", itemFieldsValue}};
                 auto c = parseContainer<media::Item>(
@@ -308,12 +309,38 @@ void JellyfinBackend::getItemDetail(
     fetchItem(url, then, error);
 }
 
-void JellyfinBackend::getChildren(
-    const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
+media::Section JellyfinBackend::sectionOfSync(const std::string& id) {
+    // the library is the CollectionFolder ancestor, with the same Id as its
+    // entry in /Users/{id}/Views
+    auto j = getSync(base() + fmt::format(fmt::runtime(apiAncestors), id, userId()), token());
+    if (j.is_array())
+        for (auto& a : j)
+            if (jstr(a, "Type") == "CollectionFolder") return parseSection(a);
+    brls::Logger::warning("JellyfinBackend: no library for {}", id);
+    return {};
+}
+
+std::optional<media::Item> JellyfinBackend::getItemDetailSync(const std::string& id) {
+    media::Item it = parseItem(getSync(base() + fmt::format(fmt::runtime(apiItem), userId(), id), token()));
+    if (it.ratingKey.empty()) return std::nullopt;
+    return it;
+}
+
+namespace {
+std::string childrenUrl(const std::string& id) {
     // direct children of any item (a show -> its seasons; a season -> its episodes)
     HTTP::Form form = {{"ParentId", id}, {"UserId", userId()}, {"Fields", itemFieldsValue}};
-    std::string url = base() + fmt::format(fmt::runtime(apiItems), userId(), HTTP::encode_form(form));
-    fetchContainer<media::Item>(url, parseItem, then, error);
+    return base() + fmt::format(fmt::runtime(apiItems), userId(), HTTP::encode_form(form));
+}
+}  // namespace
+
+void JellyfinBackend::getChildren(
+    const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
+    fetchContainer<media::Item>(childrenUrl(id), parseItem, then, error);
+}
+
+std::vector<media::Item> JellyfinBackend::getChildrenSync(const std::string& id) {
+    return parseContainer<media::Item>(getSync(childrenUrl(id), token()), parseItem).Items;
 }
 
 void JellyfinBackend::getAllEpisodes(const std::string& showId, bool,
@@ -505,7 +532,7 @@ media::PlaybackSource JellyfinBackend::resolvePlayback(
 
     // transcode (best-effort HLS master)
     HTTP::Form form = {
-        {"mediaSourceId", item.ratingKey},
+        {"mediaSourceId", version.sourceId.empty() ? item.ratingKey : version.sourceId},
         {"VideoCodec", opts.videoCodec},
         {"AudioCodec", "aac,mp3"},
         {"VideoBitrate", std::to_string(opts.bitrateCap)},
@@ -519,6 +546,10 @@ media::PlaybackSource JellyfinBackend::resolvePlayback(
         form["SubtitleMethod"] = "Encode";  // burn-in
     }
     if (opts.seekMs > 0) form["StartTimeTicks"] = std::to_string(opts.seekMs * TICKS_PER_MS);
+    if (opts.maxHeight > 0) {
+        form["MaxWidth"] = std::to_string(media::resolutionBoxWidth(opts.maxHeight));
+        form["MaxHeight"] = std::to_string(opts.maxHeight);
+    }
     std::string url = base() + fmt::format(fmt::runtime(apiVideoMaster), item.ratingKey, HTTP::encode_form(form));
     return {url, extra().str(), true, "transcode"};
 }
@@ -554,14 +585,16 @@ void JellyfinBackend::reportProgress(
 std::string JellyfinBackend::imageUrl(const std::string& path, int width, int height) const {
     if (path.empty()) return "";
     if (path.rfind("http", 0) == 0) return path;  // external (passed through)
+    if (path[0] != '/') return "";  // "@host/x" would move the api_key to another host
     std::string url = base() + path;
     std::string sep = url.find('?') == std::string::npos ? "?" : "&";
+    // Emby ignores fillWidth/fillHeight and serves the original image.
     if (width > 0) {
-        url += sep + "fillWidth=" + std::to_string(width);
+        url += sep + "maxWidth=" + std::to_string(width);
         sep = "&";
     }
     if (height > 0) {
-        url += sep + "fillHeight=" + std::to_string(height);
+        url += sep + "maxHeight=" + std::to_string(height);
         sep = "&";
     }
     url += sep + "api_key=" + token();

@@ -52,9 +52,14 @@
     "prev": "Précédent",
     "next": "Suivant",
     "error": "Échec de lecture",
+    "plex_forbidden": "Plex refuse la lecture hors du réseau local du serveur sans Plex Pass ni Remote Watch Pass (HTTP 403).",
     "direct_fallback": "Échec du transcodage, lecture directe",
+    "transcode_fallback": "Échec de la lecture directe, transcodage",
     "episode": "Épisode",
-    "speed_up": "Vitesse actuelle {}"
+    "speed_up": "Vitesse actuelle {}",
+    "repeat": "Répéter",
+    "repeat_one": "Cette vidéo",
+    "repeat_all": "Toute la liste"
   },
   "media": {
     "sort": "Tri",
@@ -203,6 +208,7 @@
     "eta": "{} restant",
     "completed": "Téléchargé",
     "failed": "Échec du téléchargement",
+    "forbidden": "Refusé par le serveur (403)",
     "queued": "En attente",
     "no_downloads": "Aucun téléchargement",
     "confirm_remove": "Supprimer ce téléchargement ?",
@@ -271,7 +277,9 @@
       "subsync": "Synchronisation des sous-titres"
     },
     "transcode": {
-      "header": "Paramètres de transcodage"
+      "header": "Paramètres de transcodage",
+      "max_resolution": "Résolution max du transcodage",
+      "resolution_limit": "Limiter aussi la lecture directe"
     },
     "control": {
       "header": "Contrôle de lecture",
@@ -336,8 +344,9 @@
       "font_a3": "Copiez le fichier de police TTF approprié dans {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliothèques",
-      "description": "Réorganisez et masquez les onglets de la barre latérale (bibliothèques, listes de lecture, Watchlist). Réglage propre à ce serveur.",
+      "header": "Barre latérale",
+      "description": "Réorganisez et masquez les onglets de la barre latérale. L'onglet Accueil et le profil restent fixes. Réglage propre à ce serveur.",
+      "offline": "Hors ligne, seules les bibliothèques téléchargées sont listées ; les autres gardent leur place.",
       "grab": "Déplacer",
       "drop": "Poser",
       "toggle": "Afficher / Masquer",
@@ -370,6 +379,7 @@
         "keyboard": "Clavier"
       },
       "config_dir": "Répertoire de configuration",
+      "config_reset": "Le fichier de configuration était illisible et a été réinitialisé",
       "logout": "Se déconnecter du compte actuel (l'application va se fermer)",
       "up2date": "L'application est déjà à jour",
       "upgrade": "Nouvelle version {} trouvée, souhaitez-vous mettre à jour ?",
@@ -417,6 +427,7 @@
     "choose_type": "Choisissez le type de connexion",
     "switch_title": "Connexions",
     "add": "Ajouter",
+    "dns_unresolved": "Impossible de résoudre « {} ». Sur Switch/Vita, utilise l’adresse IPv4 de ton serveur (ex. : http://192.168.1.50:8096) — les noms .local (mDNS) et IPv6 uniquement ne sont pas pris en charge.",
     "jellyfin": {
       "title_jellyfin": "Connexion à Jellyfin",
       "title_emby": "Connexion à Emby",

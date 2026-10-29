@@ -7,6 +7,7 @@
 #include "api/plex/backend.hpp"
 #include "api/plex.hpp"
 #include "api/plex/watchlist.hpp"
+#include "api/media/resolution.hpp"
 #include "utils/config.hpp"
 #include "utils/misc.hpp"
 #include <sstream>
@@ -125,6 +126,20 @@ void PlexBackend::getChildren(
     const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
     auto& conf = AppConfig::instance();
     getJSON<media::Container<media::Item>>(conf.getUrl(), conf.getToken(), then, error, apiChildren, id, "");
+}
+
+std::optional<media::Item> PlexBackend::getItemDetailSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiMetadata), id, "");
+    auto c = getSync(url, conf.getToken()).get<media::Container<media::Item>>();
+    if (c.Items.empty()) return std::nullopt;
+    return c.Items.front();
+}
+
+std::vector<media::Item> PlexBackend::getChildrenSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiChildren), id, "");
+    return getSync(url, conf.getToken()).get<media::Container<media::Item>>().Items;
 }
 
 void PlexBackend::getArtistTracks(
@@ -287,22 +302,27 @@ void PlexBackend::markUnwatched(const std::string& id) {
 
 // ---- playback ------------------------------------------------------------------
 
-media::PlaybackSource PlexBackend::directSource(const media::Media& version, int64_t seekMs) const {
+media::PlaybackSource PlexBackend::directSource(const media::Media& version, int64_t seekMs, bool download) const {
     auto& conf = AppConfig::instance();
     std::stringstream ssextra;
     ssextra << fmt::format("network-timeout={}", HTTP::TIMEOUT / 100);
     if (seekMs > 0) ssextra << ",start=" << misc::sec2Time(seekMs / 1000);
     if (HTTP::PROXY_STATUS) ssextra << ",http-proxy=\"" << HTTP::PROXY << "\"";
     const media::Part& part = version.parts.front();
-    std::string url = withToken(conf.getUrl() + part.key, conf.getToken());
+    // the download URL: Plex Relay answers the bare part GET with HTTP 500 but
+    // serves ?download=1, with the same bytes and Range support
+    std::string url = download ? this->downloadUrl(part.key) : withToken(conf.getUrl() + part.key, conf.getToken());
     return {url, ssextra.str(), false, "directplay"};
 }
 
 media::PlaybackSource PlexBackend::resolvePlayback(
     const media::Item& item, const media::Media& version, const media::PlaybackOptions& opts) {
+    // the player retries the bare URL when the download one fails; music has
+    // no such retry and keeps the bare one
+    bool download = item.type != media::mediaTypeTrack && !opts.plainPartUrl;
     // direct play: no bitrate cap or forced
     if (opts.bitrateCap <= 0 || opts.forceDirectPlay) {
-        return directSource(version, opts.seekMs);
+        return directSource(version, opts.seekMs, download);
     }
 
     auto& conf = AppConfig::instance();
@@ -350,11 +370,11 @@ media::PlaybackSource PlexBackend::resolvePlayback(
             int64_t transcode = media::jint(mc, "transcodeDecisionCode");
             int64_t mde = media::jint(mc, "mdeDecisionCode");
             if (general >= 2000 || mde >= 2000 || transcode == 1000) {
-                return directSource(version, opts.seekMs);
+                return directSource(version, opts.seekMs, download);
             }
         } catch (const std::exception& ex) {
             brls::Logger::warning("plex music decision: {} (direct play)", ex.what());
-            return directSource(version, opts.seekMs);
+            return directSource(version, opts.seekMs, download);
         }
 
         std::string aextra = fmt::format("network-timeout={}", HTTP::TIMEOUT / 100);
@@ -389,8 +409,6 @@ media::PlaybackSource PlexBackend::resolvePlayback(
         {"X-Plex-Version", AppVersion::getVersion()},
         {"X-Plex-Token", conf.getToken()},
     };
-    if (opts.seekMs > 0) form["offset"] = std::to_string(opts.seekMs / 1000);  // whole seconds
-
     if (opts.audioStreamId > 0) form["audioStreamID"] = std::to_string(opts.audioStreamId);
     if (opts.subtitleStreamId > 0) {
         form["subtitleStreamID"] = std::to_string(opts.subtitleStreamId);
@@ -409,17 +427,16 @@ media::PlaybackSource PlexBackend::resolvePlayback(
                     "videoCodec={}&audioCodec=aac,ac3,mp3&replace=true)",
             opts.videoCodec),
     };
-#if defined(__PSV__)
-    // The Vita hardware H.264 decoder tops out at 1080p (scripts/vita/ffmpeg
-    // patch). The bitrate cap alone lets a >1080p source through at higher
-    // qualities (verified: 8 Mbps keeps 1080p, and a 4K source would stay 4K),
-    // which the decoder then cannot handle -> playback error. Cap the height so
-    // the transcode never exceeds what the decoder can play. Re-homed here from
-    // player_view's old playTranscode when transcode construction moved into the
-    // backend during the multi-backend merge (guards the issue #14 Vita path).
-    clauses.push_back(
-        "add-limitation(scope=videoCodec&scopeName=*&type=upperBound&name=video.height&value=1080&replace=true)");
-#endif
+    // the bitrate cap alone keeps a 4K source at 4K
+    if (opts.maxHeight > 0) {
+        form["videoResolution"] = fmt::format("{}x{}", media::resolutionBoxWidth(opts.maxHeight), opts.maxHeight);
+        clauses.push_back(fmt::format(
+            "add-limitation(scope=videoCodec&scopeName=*&type=upperBound&name=video.width&value={}&replace=true)",
+            media::resolutionBoxWidth(opts.maxHeight)));
+        clauses.push_back(fmt::format(
+            "add-limitation(scope=videoCodec&scopeName=*&type=upperBound&name=video.height&value={}&replace=true)",
+            opts.maxHeight));
+    }
     std::string profile;
     for (auto& clause : clauses) {
         HTTP::Form one = {{"p", clause}};
@@ -436,14 +453,19 @@ media::PlaybackSource PlexBackend::resolvePlayback(
     int64_t transcode = media::jint(mc, "transcodeDecisionCode");
     int64_t mde = media::jint(mc, "mdeDecisionCode");
     if (general >= 2000 || mde >= 2000) {
-        throw std::runtime_error(fmt::format("{} ({})", "main/player/error"_i18n, general));
+        std::string text = media::jstr(mc, "generalDecisionText");
+        if (text.empty()) throw std::runtime_error(fmt::format("{} ({})", "main/player/error"_i18n, general));
+        throw std::runtime_error(fmt::format("{} ({}: {})", "main/player/error"_i18n, general, text));
     }
     if (transcode == 1000) {
-        // the server refuses to transcode: direct play (no resume, as before)
-        return directSource(version, 0);
+        // the server refuses to transcode: direct play
+        return directSource(version, opts.seekMs, download);
     }
 
+    // resume with mpv's start= rather than the transcoder offset: an offset
+    // session rebases mpv's clock and mpv cannot seek outside its cache there
     std::string extra = fmt::format("network-timeout={}", HTTP::TIMEOUT / 100);
+    if (opts.seekMs > 0) extra += ",start=" + misc::sec2Time(opts.seekMs / 1000);
     if (HTTP::PROXY_STATUS) extra += fmt::format(",http-proxy=\"{}\"", HTTP::PROXY);
     std::string play = conf.getUrl() + "/video/:/transcode/universal/start.m3u8?" + query;
     return {play, extra, true, "transcode", session};
@@ -485,6 +507,8 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
     if (path.empty()) return "";
     // external agent paths (cast faces...) are absolute
     if (path.rfind("http", 0) == 0) return path;
+    // a server path not rooted at "/" ("@host/x") would move the token to another host
+    if (path[0] != '/') return "";
     auto& conf = AppConfig::instance();
     if (width > 0 || height > 0) {
         if (width <= 0) width = height;
@@ -499,7 +523,7 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
         };
         return conf.getUrl() + "/photo/:/transcode?" + HTTP::encode_form(form);
     }
-    return conf.getUrl() + path + "?X-Plex-Token=" + conf.getToken();
+    return withToken(conf.getUrl() + path, conf.getToken());
 }
 
 std::string PlexBackend::imageUrlExternal(const std::string& absoluteUrl, int width, int height) const {

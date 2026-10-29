@@ -53,7 +53,7 @@ include(${BOREALIS_LIBRARY}/cmake/toolchain.cmake)
 # project info
 project(GMCA)  # short token for files/binaries/IDs; display name = "Gamepad Media Center Aggregator"
 set(VERSION_MAJOR "1")
-set(VERSION_MINOR "1")
+set(VERSION_MINOR "4")
 set(VERSION_ALTER "0")
 # Homebrew forwarder title ID for GMCA, in the community forwarder range (05...),
 # which is outside Nintendo's commercial 01... space — so it cannot collide with
@@ -70,7 +70,7 @@ set(PSN_TITLE_ID "GMCA00000")
 # main version). Bumped every Vita release so the package version never
 # regresses; 00.23 shipped with the broken v1.0.3 VPK, 00.24 is the first that
 # actually installs.
-set(VITA_VERSION "00.26")
+set(VITA_VERSION "00.30")
 set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/icon/icon.jpg)
 set(PROJECT_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
@@ -94,8 +94,27 @@ if (PLATFORM_SWITCH)
     # System service initialization functions required for libnx
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
 elseif (PLATFORM_PS4)
+    # Static-init guards that work with the PS4's thread ids, see the file
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/cxa_guard.c)
     # Show backtrace when app crash
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/ps4/crashlog.c)
+    # OpenOrbis' link.x collects `.data` but not `.data.*`, and -fdata-sections puts
+    # each initialized global in its own .data.<name> section. create-fself only
+    # loads `.data`, so the rest read as 0 on the console (ThreadPool::max_thread_num,
+    # stdio's FILEs, libunwind's cache, ...). Link with a copy that merges them.
+    file(READ ${OPENORBIS}/link.x PS4_LINK_SCRIPT)
+    string(REGEX REPLACE "\\*\\(\\.data\\)" "*(.data .data.*)" PS4_LINK_SCRIPT_FIXED "${PS4_LINK_SCRIPT}")
+    if (PS4_LINK_SCRIPT_FIXED STREQUAL PS4_LINK_SCRIPT)
+        message(FATAL_ERROR "Could not patch ${OPENORBIS}/link.x to merge .data.* sections")
+    endif ()
+    file(WRITE ${CMAKE_BINARY_DIR}/link.x "${PS4_LINK_SCRIPT_FIXED}")
+    string(REPLACE "${OPENORBIS}/link.x" "${CMAKE_BINARY_DIR}/link.x" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${CMAKE_BINARY_DIR}/link.x" PS4_LINK_SCRIPT_FLAG)
+    if (PS4_LINK_SCRIPT_FLAG EQUAL -1)
+        message(FATAL_ERROR "The PS4 linker flags don't reference ${OPENORBIS}/link.x")
+    endif ()
+    # Linux clock ids -> FreeBSD ones, see the file (linked with --wrap below)
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/clock_ids.c)
 elseif (PLATFORM_PSV)
     configure_file("${CMAKE_SOURCE_DIR}/app/platform/vita/template.xml.in" "${CMAKE_BINARY_DIR}/template.xml")
     # In-app self-update (issue #14): app/src/utils/vita_install.cpp unpacks the
@@ -134,6 +153,10 @@ endif ()
 
 # build borealis and other third party libraries
 add_subdirectory(library)
+# yoga builds with -fno-rtti, so it emits its own hidden std::exception typeinfo, which
+# the link then uses for every catch in the app: libc++ exceptions such as
+# std::runtime_error no longer matched catch (const std::exception&)
+target_compile_options(yogacore PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-frtti>)
 
 if (USE_SYSTEM_CURL)
     find_package(CURL REQUIRED)
@@ -243,6 +266,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_include_directories(${PROJECT_NAME} PRIVATE app/include ${APP_PLATFORM_INCLUDE})
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections -Wunused-variable ${APP_PLATFORM_OPTION})
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
+if (PLATFORM_PS4)
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+elseif (PLATFORM_PSV)
+    # vita-elf-create appends the SCE module info after the first segment, which needs room before the next one.
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--defsym=__sce_headroom=0x10000")
+endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}
     APP_BUILD=${VERSION_BUILD}
@@ -351,13 +380,20 @@ elseif (PLATFORM_PSV)
         FILE ${PSV_ASSETS_FILES}
     )
 elseif (PLATFORM_PS4)
+    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 makes system dialogs such as the
+    # keyboard take their enter button from the console's setting, as borealis does for the app's
+    # own keys; without it the keyboard confirmed with Circle on a console set to Cross. Tested on
+    # a GoldHEN PS4 set to Cross. Override with -DPS4_SFO_ATTRIBUTE=<value>.
+    if (NOT DEFINED PS4_SFO_ATTRIBUTE)
+        set(PS4_SFO_ATTRIBUTE 8388640)
+    endif ()
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4
             ${PSN_TITLE_ID}
             ${PROJECT_NAME}
             ${VITA_VERSION}
-            8388608
+            ${PS4_SFO_ATTRIBUTE}
     )
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory ${BOREALIS_DIR}/ps4/sce_module ${CMAKE_BINARY_DIR}/ps4/sce_module

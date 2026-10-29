@@ -4,6 +4,7 @@
 #include "view/button_close.hpp"
 #include "view/mpv_core.hpp"
 #include "view/player_setting.hpp"
+#include "view/video_view.hpp"
 #include "api/backend.hpp"  // full media::Backend definition (subtitleMenuHint)
 
 using namespace brls::literals;
@@ -118,7 +119,7 @@ private:
     }
 };
 
-PlayerSetting::PlayerSetting() {
+PlayerSetting::PlayerSetting(VideoView* video) {
     this->inflateFromXMLRes("xml/view/player_setting.xml");
     brls::Logger::debug("PlayerSetting: create");
 
@@ -161,6 +162,15 @@ PlayerSetting::PlayerSetting() {
             conf.setItem(AppConfig::OSD_ON_TOGGLE, value);
         });
 
+    btnSpeed->init("main/player/speed"_i18n, VideoView::speedLabels(), VideoView::speedIndex(video->getSpeed()),
+        [video](int value) { video->setSpeed(VideoView::SPEEDS.at(value)); });
+
+    // labels follow VideoView::Repeat's order
+    std::vector<std::string> repeats = {"hints/off"_i18n, "main/player/repeat_one"_i18n};
+    if (video->hasList()) repeats.push_back("main/player/repeat_all"_i18n);
+    btnRepeat->init("main/player/repeat"_i18n, repeats, (int)video->getRepeat(),
+        [video](int value) { video->setRepeat(static_cast<VideoView::Repeat>(value)); });
+
     /// Player mirror
     btnVideoMirror->init("main/setting/filter/mirror"_i18n,
         {
@@ -170,16 +180,7 @@ PlayerSetting::PlayerSetting() {
         },
         MPVCore::VIDEO_FILTER, [&mpv](int value) {
             MPVCore::VIDEO_FILTER = value;
-            switch (value) {
-            case 1:
-                mpv.command("set", "vf", "hflip");
-                break;
-            case 2:
-                mpv.command("set", "vf", "vflip");
-                break;
-            default:
-                mpv.command("set", "vf", "");
-            }
+            mpv.setMirror(value);
             // 如果正在使用硬解，那么将硬解更新为 auto-copy，避免直接硬解因为不经过 cpu 处理导致镜像翻转无效
             if (MPVCore::HARDWARE_DEC) {
                 const char* hwdec = value > 0 ? "auto-copy" : MPVCore::PLAYER_HWDEC_METHOD.c_str();

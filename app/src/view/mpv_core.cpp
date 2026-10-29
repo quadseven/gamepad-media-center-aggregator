@@ -3,8 +3,15 @@
 //
 
 #include "view/mpv_core.hpp"
+#include "view/hdr_options.hpp"
 #include "utils/config.hpp"
 #include "utils/misc.hpp"
+#include "utils/log_redact.hpp"
+#include "api/http.hpp"
+#ifdef __PS4__
+#include "utils/default_font.hpp"
+#endif
+#include <cstring>
 #include <fmt/ranges.h>
 
 static inline void check_error(int status) {
@@ -134,10 +141,30 @@ void MPVCore::init() {
     mpv_set_option_string(mpv, "config", "yes");
     mpv_set_option_string(mpv, "config-dir", confDir.c_str());
     mpv_set_option_string(mpv, "sub-fonts-dir", confDir.c_str());
+#ifdef __PS4__
+    // the PS4 libass has no font provider: {config}/subfont.ttf is its only fallback
+    // font, so install the bundled one unless the user put their own there
+    {
+        const std::string subfont = confDir + "/subfont.ttf";
+        switch (DefaultFont::install(BRLS_ASSET("font/switch_font.ttf"), subfont)) {
+        case DefaultFont::Result::Installed:
+            brls::Logger::info("Subtitle font installed: {}", subfont);
+            break;
+        case DefaultFont::Result::Failed:
+            brls::Logger::error("Subtitle font install failed: {}", subfont);
+            break;
+        default:
+            break;
+        }
+    }
+#endif
     mpv_set_option_string(mpv, "watch-later-dir", fmt::format("{}/watch-later", confDir).c_str());
     mpv_set_option_string(mpv, "gpu-shader-cache-dir", fmt::format("{}/cache", confDir).c_str());
     mpv_set_option_string(mpv, "ytdl", "no");
     mpv_set_option_string(mpv, "referrer", conf.getUrl().c_str());
+    // the app's own User-Agent instead of ffmpeg's "Lavf/..."; per-remote
+    // overrides (client.cpp) still win as loadfile options
+    mpv_set_option_string(mpv, "user-agent", HTTP::default_user_agent().c_str());
     mpv_set_option_string(mpv, "osd-level", "0");
     mpv_set_option_string(mpv, "video-timing-offset", "0");  // 60fps
     mpv_set_option_string(mpv, "reset-on-next-file", "speed,pause");
@@ -183,6 +210,12 @@ void MPVCore::init() {
         mpv_set_option_string(mpv, "sub-font", "nintendo_udsg-r_ko_003");
 #elif defined(__PS4__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "6");
+    // A larger audio buffer, so a short CPU burst of the software decoder does not starve the
+    // sound (choppy with SDL's default 2048 samples, 43 ms). `sdl-buflen` is ao_sdl.c's `buflen`
+    // with the options prefix "sdl" (seconds; mpv 0.36 has no --ao sub-options, so
+    // `--ao=sdl:buflen=` is rejected) and `audio-buffer` is mpv's own audio buffer (seconds).
+    check_error(mpv_set_option_string(mpv, "sdl-buflen", "0.2"));
+    check_error(mpv_set_option_string(mpv, "audio-buffer", "0.5"));
 #elif defined(__PSV__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "4");
     mpv_set_option_string(mpv, "fbo-format", "rgba8");
@@ -201,13 +234,22 @@ void MPVCore::init() {
         mpv_set_option_string(mpv, "hwdec", "no");
     }
 
+    // "warn" in every mode: it feeds the reason shown by the playback-error
+    // dialog, and the Switch ffmpeg logs HTTP errors as warnings
     if (MPVCore::DEBUG) {
         mpv_set_option_string(mpv, "terminal", "yes");
         //  mpv_set_option_string(mpv, "msg-level", "all=no");
         mpv_set_option_string(mpv, "msg-level", "all=v");
-    } else if (brls::Application::isDebuggingViewEnabled()) {
-        mpv_request_log_messages(mpv, "info");
+        mpv_request_log_messages(mpv, "warn");
+    } else {
+        mpv_request_log_messages(mpv, brls::Application::isDebuggingViewEnabled() ? "info" : "warn");
     }
+
+#ifdef __PS4__
+    // HDR video drawn through mpv's own HDR shader can't work on the PS4 (no shader compiler): the
+    // re-tag filter, in the chain before the first frame, keeps mpv on its precompiled SDR shader
+    mpv_set_option_string(mpv, "vf", hdr::retagFilter().c_str());
+#endif
 
 #if (defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(ANDROID)
     if (conf.getItem(AppConfig::SINGLE, false)) {
@@ -230,6 +272,11 @@ void MPVCore::init() {
     check_error(mpv_observe_property(mpv, 5, "cache-speed", MPV_FORMAT_INT64));
     check_error(mpv_observe_property(mpv, 9, "speed", MPV_FORMAT_DOUBLE));
     check_error(mpv_observe_property(mpv, 10, "volume", MPV_FORMAT_INT64));
+#ifdef __PS4__
+    // the video's transfer function: a PQ file gets its saturation and contrast boost then
+    hdr_active = false;
+    check_error(mpv_observe_property(mpv, 11, "video-params/gamma", MPV_FORMAT_STRING));
+#endif
 
 // init renderer params
 #ifdef ANDROID
@@ -568,6 +615,15 @@ void MPVCore::draw(brls::Rect area, float alpha) {
 
 std::string MPVCore::getError() const {
     if (this->last_error == 0) return "";
+    // the WARN line carries the cause ("https: HTTP error 500"), the ERROR
+    // line the context ("stream: Failed to open <url>")
+    std::string detail = this->last_warn_line;
+    if (!this->last_error_line.empty()) {
+        if (!detail.empty()) detail += "; ";
+        detail += this->last_error_line;
+    }
+    if (!detail.empty())
+        return fmt::format("mpv {}: {} — {}", this->last_error, mpv_error_string(this->last_error), detail);
     return fmt::format("mpv {}: {}", this->last_error, mpv_error_string(this->last_error));
 }
 
@@ -589,10 +645,18 @@ void MPVCore::eventMainLoop() {
             return;
         case MPV_EVENT_LOG_MESSAGE: {
             auto log = (mpv_event_log_message *)event->data;
+            // keep the FIRST lines since the load or the last restart: with a
+            // network failure the root cause comes first, then generic wrappers
             if (log->log_level <= MPV_LOG_LEVEL_ERROR) {
-                brls::Logger::error("{}: {}", log->prefix, log->text);
+                std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
+                brls::Logger::error("{}", line);
+                if (this->last_error_line.empty()) this->last_error_line = line;
             } else if (log->log_level <= MPV_LOG_LEVEL_WARN) {
-                brls::Logger::warning("{}: {}", log->prefix, log->text);
+                std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
+                if (this->last_warn_line.empty() &&
+                    (std::strncmp(log->prefix, "ffmpeg", 6) == 0 || std::strcmp(log->prefix, "stream") == 0))
+                    this->last_warn_line = line;
+                brls::Logger::warning("{}", line);
             } else if (log->log_level <= MPV_LOG_LEVEL_INFO) {
                 brls::Logger::info("{}: {}", log->prefix, log->text);
             } else if (log->log_level <= MPV_LOG_LEVEL_V) {
@@ -612,6 +676,9 @@ void MPVCore::eventMainLoop() {
             break;
         case MPV_EVENT_START_FILE:
             // event 6: 开始加载文件
+            this->last_error_line.clear();  // errors from a previous load are stale
+            this->last_warn_line.clear();
+            this->load_generation++;
             brls::Logger::info("MPVCore => EVENT_START_FILE");
             mpvCoreEvent.fire(MpvEventEnum::START_FILE);
             mpvCoreEvent.fire(MpvEventEnum::LOADING_START);
@@ -619,6 +686,8 @@ void MPVCore::eventMainLoop() {
         case MPV_EVENT_PLAYBACK_RESTART:
             // event 21: 开始播放文件（一般是播放或调整进度结束之后触发）
             brls::Logger::info("MPVCore => EVENT_PLAYBACK_RESTART");
+            this->last_error_line.clear();
+            this->last_warn_line.clear();
             this->video_stopped = false;
             if (this->isPaused())
                 mpvCoreEvent.fire(MpvEventEnum::MPV_PAUSE);
@@ -633,7 +702,11 @@ void MPVCore::eventMainLoop() {
                 this->last_error = node->error;
                 brls::Logger::error("MPVCore => FILE ERROR: {}", mpv_error_string(node->error));
                 this->stop();
-                mpvCoreEvent.fire(MpvEventEnum::MPV_FILE_ERROR);
+                // deferred: mpv can queue END_FILE before the log lines that
+                // explain it
+                brls::delay(200, [this, gen = this->load_generation]() {
+                    if (gen == this->load_generation) mpvCoreEvent.fire(MpvEventEnum::MPV_FILE_ERROR);
+                });
             } else if (node->reason == MPV_END_FILE_REASON_EOF) {
                 brls::Logger::info("MPVCore => END_OF_FILE");
                 mpvCoreEvent.fire(MpvEventEnum::END_OF_FILE);
@@ -664,6 +737,13 @@ void MPVCore::eventMainLoop() {
         case MPV_EVENT_PROPERTY_CHANGE: {
             /// https://mpv.io/manual/stable/#property-list
             mpv_event_property *prop = (mpv_event_property *)event->data;
+#ifdef __PS4__
+            // also when the property goes away (the file ended): the boost is undone
+            if (event->reply_userdata == 11) {
+                this->applyHdrHandling();
+                break;
+            }
+#endif
             if (prop->format == MPV_FORMAT_NONE) break;
 
             switch (event->reply_userdata) {
@@ -723,6 +803,40 @@ void MPVCore::eventMainLoop() {
         default:;
         }
     }
+}
+
+#ifdef __PS4__
+// Called when the video's transfer function changes (a file loaded, or ended). What the previous
+// PQ file got is undone first (saturation and contrast back to the viewer's own), so the next
+// file, SDR or HDR, starts clean; then a PQ file gets its boost. The re-tag filter itself is in
+// the chain from the start (see hdr_options.hpp), so this only raises saturation and contrast.
+void MPVCore::applyHdrHandling() {
+    const std::string gamma = this->getString("video-params/gamma");
+    if (this->hdr_active) {
+        this->setInt("saturation", this->hdr_base_saturation);
+        this->setInt("contrast", this->hdr_base_contrast);
+        this->hdr_active = false;
+    }
+    const hdr::Plan plan = hdr::planFor(gamma);
+    if (!plan.boost) return;
+    this->hdr_base_saturation = int(this->getDouble("saturation"));
+    this->hdr_base_contrast = int(this->getDouble("contrast"));
+    this->setInt("saturation", hdr::clampEqualizer(this->hdr_base_saturation + plan.saturation));
+    this->setInt("contrast", hdr::clampEqualizer(this->hdr_base_contrast + plan.contrast));
+    this->hdr_active = true;
+    brls::Logger::info("MPV HDR video ({}): shown as SDR, {}", gamma, hdr::describe(plan));
+}
+#endif
+
+// The mirror setting (0 off, 1 horizontal, 2 vertical): `set vf` replaces the whole filter list,
+// so on the PS4 the HDR re-tag filter goes in the same list, in one step.
+void MPVCore::setMirror(int mirror) {
+#ifdef __PS4__
+    const bool retag = true;
+#else
+    const bool retag = false;
+#endif
+    this->command("set", "vf", hdr::filterChain(mirror, retag).c_str());
 }
 
 void MPVCore::reset() {

@@ -11,8 +11,6 @@
 #include <algorithm>
 #include <cctype>
 
-#include <optional>
-
 using namespace brls::literals;  // for _i18n
 
 std::string DownloadManager::downloadDir() const { return AppConfig::instance().configDir() + "/downloads"; }
@@ -294,57 +292,30 @@ std::string DownloadManager::buildDownloadUrl(const DownloadItem& item) const {
 // choice (not a concurrency requirement: the shared curl DNS cache is lock-
 // guarded, http.cpp).
 void DownloadManager::captureOfflineSync(const std::string& itemId) {
-    auto& conf = AppConfig::instance();
-    const std::string base = conf.getUrl();
-    const std::string token = conf.getToken();
     auto& lib = OfflineLibrary::instance();
 
-    auto fetchOne = [&](const std::string& id) -> std::optional<plex::Item> {
-        std::string url = base + fmt::format(fmt::runtime(plex::apiMetadata), id, "");
-        auto c = plex::getSync(url, token).get<plex::Container<plex::Item>>();
-        if (c.Items.empty()) return std::nullopt;
-        return c.Items.front();
-    };
-    auto fetchChildren = [&](const std::string& id) -> std::vector<plex::Item> {
-        std::string url = base + fmt::format(fmt::runtime(plex::apiChildren), id, "");
-        return plex::getSync(url, token).get<plex::Container<plex::Item>>().Items;
-    };
-    auto cacheAssets = [](const plex::Item& it) {
-        for (const auto& p : offline::assetPaths(it)) ImageCache::store(p);
-    };
-
-    // leaf fiche + its artwork (poster/backdrop/logo/cast)
-    auto leaf = fetchOne(itemId);
-    if (!leaf) return;
-    lib.putItem(*leaf);
-    cacheAssets(*leaf);
-
-    if (leaf->type != plex::mediaTypeEpisode) return;
-
-    // show fiche only — once per show. We deliberately do NOT persist every
-    // season: only seasons that actually get a downloaded episode are stored
-    // (below), so the offline seasons row lists just those (SPEC AC10).
-    if (!leaf->grandparentRatingKey.empty() && !lib.hasItem(leaf->grandparentRatingKey)) {
-        if (auto show = fetchOne(leaf->grandparentRatingKey)) {
-            lib.putItem(*show);
-            cacheAssets(*show);
-        }
+    // also kept on the download: the legacy back-fill (OfflineLibrary::migrateLegacy)
+    // files the item under it when the fiche below cannot be fetched
+    auto section = AppConfig::instance().backend().sectionOfSync(itemId);
+    if (!section.key.empty()) {
+        std::lock_guard<std::mutex> lock(this->mutex);
+        for (auto& item : this->items)
+            if (item.itemId == itemId) {
+                item.sectionKey = section.key;
+                item.sectionTitle = section.title;
+                break;
+            }
     }
-    // this season's fiche + its FULL episode list — non-downloaded siblings
-    // appear greyed (SPEC AC9). Once per season (guarded on the season node).
-    if (!leaf->parentRatingKey.empty() && !lib.hasItem(leaf->parentRatingKey)) {
-        if (auto season = fetchOne(leaf->parentRatingKey)) {
-            if (season->parentRatingKey.empty()) season->parentRatingKey = leaf->grandparentRatingKey;
-            lib.putItem(*season);
-            cacheAssets(*season);
-        }
-        for (auto& ep : fetchChildren(leaf->parentRatingKey)) {
-            if (ep.ratingKey == itemId) continue;  // keep the richer leaf fiche
-            if (ep.parentRatingKey.empty()) ep.parentRatingKey = leaf->parentRatingKey;
-            if (ep.grandparentRatingKey.empty()) ep.grandparentRatingKey = leaf->grandparentRatingKey;
-            lib.putItem(ep);
-        }
-    }
+
+    offline::capture(
+        itemId, section, [](const std::string& id) { return AppConfig::instance().backend().getItemDetailSync(id); },
+        [](const std::string& id) { return AppConfig::instance().backend().getChildrenSync(id); },
+        [&](const std::string& id) { return lib.hasItem(id); },
+        [&](plex::Item it, bool art) {
+            lib.putItem(it);
+            if (art)
+                for (const auto& p : offline::assetPaths(it)) ImageCache::store(p);
+        });
 }
 
 // Must be called with mutex held
@@ -453,12 +424,22 @@ void DownloadManager::doDownload(DownloadItem& item) {
         }
 
         if (!thumb.empty() && !cancel->load()) {
+            // written to a temp then renamed: the list reads thumb.png on the UI
+            // thread and must never open a half-written file
+            std::string thumbPath = itemDir + "/thumb.png";
+            std::string tmp = thumbPath + ".part";
             try {
-                // thumbnail
-                std::string thumbUrl = AppConfig::instance().backend().imageUrl(thumb);
-                HTTP::download(thumbUrl, itemDir + "/thumb.png", HTTP::Timeout{});
+                std::string thumbUrl = AppConfig::instance().backend().imageUrl(thumb, 225);
+                HTTP::download(thumbUrl, tmp, HTTP::Timeout{});
+                // rename does not replace an existing file on Switch (version.cpp)
+                if (fs::exists(thumbPath)) fs::remove(thumbPath);
+                fs::rename(tmp, thumbPath);
             } catch (const std::exception& e) {
                 brls::Logger::warning("Failed to download thumbnail: {}", e.what());
+                try {
+                    fs::remove(tmp);
+                } catch (...) {
+                }
             }
         }
 

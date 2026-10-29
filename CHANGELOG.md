@@ -9,6 +9,158 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.0] - 2026-10-24
+
+### Added
+
+- **Audio files from Files play in the music player (#33).** An audio file
+  picked in Files opens Now Playing and the persistent mini-bar, like a Plex,
+  Jellyfin or Emby track. The folder's audio files become the queue, in the
+  order shown. Title, artist, album and length come from the file tags.
+- **Search and Files can be reordered and hidden (#34).** They move and hide
+  like libraries. Home and the profile stay in place, and the settings screen
+  is renamed Sidebar.
+
+### Fixed
+
+- **Offline sidebar (#34).** Offline, library tabs follow the order and
+  visibility saved for the server, and Jellyfin and Emby show Favorites
+  instead of Watchlist.
+- **Offline details of Jellyfin and Emby downloads.** A movie or show
+  downloaded from Jellyfin or Emby now keeps its summary, poster, backdrop,
+  cast and versions offline, plus the show, season and episodes for an
+  episode. Downloads made before this release keep their minimal details.
+- **Jellyfin and Emby versions.** The Version selector reads
+  "1080p · HEVC · 1.4 Mbps" on every backend, and Download takes the version
+  picked in the selector, like Play.
+- **Resumed Plex transcodes (#72).** The OSD shows the resume time, chapter
+  markers sit in the right place, and seeking works anywhere, before the
+  resume point too.
+- **FTP folders (#54).** Folders on FTP servers without MLSD (vsftpd,
+  busybox, most routers) open again. On those servers a non-media file such
+  as `readme.txt` shows as a folder.
+- **Edit and Delete in the server menu (#54)** open their screen again.
+- **macOS: crash at launch when the active server does not answer.** Errors
+  from the C++ standard library escaped the app's error handling.
+- **Rounded icon on the sign-in screens.** The icon on the connection type,
+  sign-in and hint screens was clipped at its corners.
+- **Server image paths.** An image path from the server that does not start
+  with `/` is refused, so the access token cannot be sent to another host.
+
+## [1.3.1] - 2026-10-24
+
+### Fixed
+
+- **Play uses the version picked on a movie (#96).** On a movie with several
+  versions, Play started the first accessible one whatever the Version
+  selector showed, on Plex, Jellyfin and Emby.
+- **The video info screen no longer shows tokens or passwords.** The Url and
+  play method lines mask `X-Plex-Token`, `api_key` and `ApiKey`, and the
+  user and password of FTP and SFTP addresses, so a screenshot of that screen
+  can be shared. mpv still gets the full address.
+- **Plex: remote playback refused with HTTP 403 (#88).** Plex refuses remote
+  playback from third-party apps when the account has neither Plex Pass nor
+  Remote Watch Pass. A dialog now names that rule, instead of a retry into a
+  transcode ending on "mpv -13". A download refused the same way says so in
+  the Downloads tab.
+- **Server addresses that don't resolve (#57).** Adding a Jellyfin or Emby
+  server or a remote whose host doesn't resolve names the host and asks for
+  its IPv4 address. On Switch and Vita, a `.local` address is refused before
+  the request, since neither has an mDNS resolver.
+- **PS4 fixes from @amansingh909 (#91, #92, #93, #94, #95).**
+  - Initialized globals no longer read as zero, and two threads starting
+    the same static no longer abort the app.
+  - Network timeouts fire again: they counted CPU time, so a server that
+    didn't answer kept the app waiting.
+  - A closed connection no longer kills the app (SIGPIPE).
+  - The system keyboard confirms with the console's enter button.
+  - Text subtitles (SRT, VTT, SSA/ASS) are drawn.
+  - The Files tab lists folders, and the USB drives mounted before GMCA
+    starts (#97).
+  - HDR video plays instead of a blue screen, and a bigger audio buffer
+    keeps the sound from going choppy.
+
+## [1.3.0] - 2026-09-24
+
+### Added
+
+- **Playback speed and repeat in the player settings (#68).** The cogwheel
+  menu has a Playback Speed selector, from 0.5x to 2.0x, and a Repeat
+  selector: Off, This video, or Whole list when the player has a list (the
+  episodes of a show, the videos of a remote folder). Both last until the
+  player closes, and carry over from one episode to the next.
+- **Maximum transcoding resolution (#67).** Settings > Transcode can cap the
+  transcode at 4K, 1440p, 1080p, 720p or 480p, for Plex, Jellyfin and Emby.
+  "Also limit direct play" transcodes a source larger than that limit instead
+  of playing it directly.
+
+### Fixed
+
+- **Emby: external subtitles, avatars, Anime libraries and album covers
+  (#65).** Sidecar subtitles load on Emby, and on Jellyfin when the server
+  gives no delivery URL. The profile avatar of Jellyfin and Emby users is
+  shown after the next sign-in. Mixed-content libraries, the usual type for
+  Anime, are listed in the sidebar. Album covers are requested resized, so
+  Emby no longer sends the original multi-megabyte image.
+- **Emby: transcoding failed with an HTTP 400 (#67).** The transcode request
+  now sends the selected media source instead of the item id.
+- **Jellyfin and Emby servers could stay offline after a restart (#77).** The
+  reconnect check now calls the server API instead of the web page, which a
+  proxy or a server setup can refuse while sign-in works.
+- **Downloads: posters and queue (#73).** Every queued episode shows its
+  poster, not only the running one. Thumbnails are written through a
+  temporary file, and interrupted downloads resume once the server is
+  reachable instead of waiting for a new download.
+- **A video no longer loops because a song was on repeat.** Each video
+  session starts with mpv's loop settings cleared.
+
+### Changed
+
+- **Switch: 4K sources are transcoded to 1080p by default (#67).** New
+  installs and existing ones get the 1080p limit with "Also limit direct
+  play" on. Set the limit to Auto to play 4K files directly again. Other
+  platforms keep Auto.
+
+## [1.2.0] - 2026-09-24
+
+### Added
+
+- **Playback errors now say why (#69).** The error dialog and the fallback
+  toasts show the first ffmpeg or stream error of the load, such as
+  `https: HTTP error 500` or `stream: Failed to open`. Host names, IP
+  addresses, tokens and API keys are masked in these lines, so a screenshot
+  of the dialog is safe to post in an issue.
+- **Plex: automatic fallback to transcoding (#69).** When direct play fails to
+  open, the player retries once through the server transcoder at 8 Mbps and
+  shows a toast. It is skipped when force direct play is on, and never used
+  for music or Stremio.
+
+### Fixed
+
+- **Plex: "mpv -13" playback failures (#50).** On some connections, Plex Relay
+  in particular, the server answered the stream request with an HTTP 500 while
+  downloads worked. Direct play now streams through the download URL, and
+  falls back to the plain part URL when a shared user has no download rights.
+- **Changing subtitles or audio no longer restarts the video (#69).** A reload
+  that fails to open resumes from the position it asked for, and resumed
+  transcodes (Plex and Jellyfin) keep reporting absolute positions to the
+  server.
+- **GMCA quit on startup when `config.json` was corrupted (#56).** The
+  unreadable file is now moved to `config.json.bak`, the defaults are
+  restored, and a notification says the settings were reset. Settings are
+  also saved through a temporary file and a rename, so a save cut short no
+  longer leaves a truncated config.
+- **Plex: libraries excluded from home were missing from the sidebar (#63).**
+  Libraries set to "exclude from home" or "exclude from home and search" in
+  Plex are listed again. Libraries hidden in Settings > Libraries stay hidden.
+
+### Changed
+
+- **macOS builds use ffmpeg 9.0.2 (#80).** The CI now installs its prebuilt
+  dependencies from this repository's `ci-deps` prerelease instead of the
+  upstream Switchfin releases, whose assets kept disappearing. Switch and PS4
+  move to dav1d 1.5.4, Windows to curl 8.21.0.
+
 ## [1.1.0] - 2026-07-17
 
 ### Added

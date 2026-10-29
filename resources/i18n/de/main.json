@@ -48,9 +48,14 @@
     "prev": "Vorheriges",
     "next": "Nächstes",
     "error": "Wiedergabefehler",
+    "plex_forbidden": "Plex verweigert die Wiedergabe außerhalb des lokalen Netzwerks des Servers ohne Plex Pass oder Remote Watch Pass (HTTP 403).",
     "direct_fallback": "Transkodierung fehlgeschlagen, direkte Wiedergabe",
+    "transcode_fallback": "Direkte Wiedergabe fehlgeschlagen, Transkodierung",
     "episode": "Episode",
-    "speed_up": "Aktuelle Geschwindigkeit {}"
+    "speed_up": "Aktuelle Geschwindigkeit {}",
+    "repeat": "Wiederholen",
+    "repeat_one": "Dieses Video",
+    "repeat_all": "Ganze Liste"
   },
   "media": {
     "sort": "Sortieren",
@@ -190,6 +195,7 @@
     "eta": "{} verbleibend",
     "completed": "Heruntergeladen",
     "failed": "Download fehlgeschlagen",
+    "forbidden": "Vom Server abgelehnt (403)",
     "queued": "In Warteschlange",
     "no_downloads": "Keine Downloads",
     "confirm_remove": "Diesen Download entfernen?",
@@ -259,7 +265,9 @@
       "subsync": "Untertitel-Synchronisierung"
     },
     "transcode": {
-      "header": "Transkodierung"
+      "header": "Transkodierung",
+      "max_resolution": "Maximale Transkodierungsauflösung",
+      "resolution_limit": "Auch Direct Play begrenzen"
     },
     "control": {
       "header": "Wiedergabesteuerung",
@@ -324,8 +332,9 @@
       "font_a3": "Lege eine beliebige ttf-Datei unter {}/subfont.ttf ab"
     },
     "libraries": {
-      "header": "Bibliotheken",
-      "description": "Ordne die Tabs der Seitenleiste neu an oder blende sie aus (Bibliotheken, Wiedergabelisten, Merkliste). Diese Einstellung wird pro Server gespeichert.",
+      "header": "Seitenleiste",
+      "description": "Ordne die Tabs der Seitenleiste neu an oder blende sie aus. Home und Profil bleiben an ihrem Platz. Diese Einstellung wird pro Server gespeichert.",
+      "offline": "Offline werden nur heruntergeladene Bibliotheken angezeigt, die anderen behalten ihren Platz.",
       "grab": "Verschieben",
       "drop": "Ablegen",
       "toggle": "Anzeigen / Ausblenden",
@@ -358,6 +367,7 @@
         "keyboard": "Tastatur"
       },
       "config_dir": "Konfigurationsordner",
+      "config_reset": "Die Konfigurationsdatei war unlesbar und wurde zurückgesetzt",
       "logout": "Vom aktuellen Konto abmelden \n(die Applikation wird beendet)",
       "up2date": "App ist auf dem neusten Stand",
       "upgrade": "{} ist jetzt verfügbar! Bereit zum Aktualisieren?",
@@ -422,6 +432,7 @@
     "choose_type": "Wähle deinen Verbindungstyp",
     "switch_title": "Verbindungen",
     "add": "Hinzufügen",
+    "dns_unresolved": "„{}“ kann nicht aufgelöst werden. Auf Switch/Vita die IPv4-Adresse deines Servers verwenden (z. B. http://192.168.1.50:8096) – .local (mDNS) und reine IPv6-Namen werden nicht unterstützt.",
     "jellyfin": {
       "title_jellyfin": "In Jellyfin anmelden",
       "title_emby": "In Emby anmelden",

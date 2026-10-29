@@ -48,9 +48,14 @@
     "prev": "Önceki",
     "next": "Sonraki",
     "error": "Oynatma hatası",
+    "plex_forbidden": "Plex, Plex Pass veya Remote Watch Pass olmadan sunucunun yerel ağı dışında oynatmayı reddeder (HTTP 403).",
     "direct_fallback": "Kod dönüştürme başarısız, doğrudan oynatılıyor",
+    "transcode_fallback": "Doğrudan oynatma başarısız, kod dönüştürülüyor",
     "episode": "Bölümler",
-    "speed_up": "Mevcut hız {}"
+    "speed_up": "Mevcut hız {}",
+    "repeat": "Tekrarla",
+    "repeat_one": "Bu video",
+    "repeat_all": "Tüm liste"
   },
   "media": {
     "sort": "Sırala",
@@ -190,6 +195,7 @@
     "eta": "{} kaldı",
     "completed": "İndirildi",
     "failed": "İndirme Başarısız",
+    "forbidden": "Sunucu tarafından reddedildi (403)",
     "queued": "Kuyruğa Eklendi",
     "no_downloads": "İndirme Yok",
     "confirm_remove": "İndirilen dosya kaldırılsın mı?",
@@ -259,7 +265,9 @@
       "subsync": "Alt Yazı Eşitleme"
     },
     "transcode": {
-      "header": "Yeniden Kodlama"
+      "header": "Yeniden Kodlama",
+      "max_resolution": "Maksimum dönüştürme çözünürlüğü",
+      "resolution_limit": "Doğrudan oynatmayı da sınırla"
     },
     "control": {
       "header": "Oynatma Denetimleri",
@@ -324,8 +332,9 @@
       "font_a3": "Herhangi bir TTF dosyasını {}/subfont.ttf konumuna yerleştirin."
     },
     "libraries": {
-      "header": "Kitaplıklar",
-      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin (kitaplıklar, oynatma listeleri, izleme listesi). Bu ayar her sunucu için ayrı kaydedilir.",
+      "header": "Kenar çubuğu",
+      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin. Ana Sayfa ve profil yerinde kalır. Bu ayar her sunucu için ayrı kaydedilir.",
+      "offline": "Çevrimdışıyken yalnızca indirilen kitaplıklar listelenir; diğerleri yerlerini korur.",
       "grab": "Taşı",
       "drop": "Bırak",
       "toggle": "Göster / Gizle",
@@ -358,6 +367,7 @@
         "keyboard": "Klavye"
       },
       "config_dir": "Yapılandırma dizini",
+      "config_reset": "Yapılandırma dosyası okunamadı ve sıfırlandı",
       "logout": "Mevcut hesaptan çıkış yap (uygulamadan çıkılacaktır)",
       "up2date": "Uygulama güncel",
       "upgrade": "{} sürümü şimdi mevcut! Güncellensin mi?",
@@ -422,6 +432,7 @@
     "choose_type": "Bağlantı türünü seçin",
     "switch_title": "Bağlantılar",
     "add": "Ekle",
+    "dns_unresolved": "\"{}\" çözümlenemiyor. Switch/Vita’da sunucunuzun IPv4 adresini kullanın (ör. http://192.168.1.50:8096) — .local (mDNS) ve yalnızca IPv6 adları desteklenmez.",
     "jellyfin": {
       "title_jellyfin": "Jellyfin'e Giriş Yap",
       "title_emby": "Emby'ye Giriş Yap",

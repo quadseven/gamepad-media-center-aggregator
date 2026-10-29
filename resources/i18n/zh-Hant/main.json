@@ -48,9 +48,14 @@
     "prev": "上一個",
     "next": "下一個",
     "error": "播放錯誤",
+    "plex_forbidden": "沒有 Plex Pass 或 Remote Watch Pass 時，Plex 拒絕在伺服器區域網路之外播放 (HTTP 403)。",
     "direct_fallback": "轉碼失敗，直接播放",
+    "transcode_fallback": "直接播放失敗，轉碼播放",
     "episode": "選集",
-    "speed_up": "{} 倍速播放中"
+    "speed_up": "{} 倍速播放中",
+    "repeat": "重複",
+    "repeat_one": "目前影片",
+    "repeat_all": "整個列表"
   },
   "media": {
     "sort": "排序",
@@ -190,6 +195,7 @@
     "eta": "剩餘 {}",
     "completed": "已下載",
     "failed": "下載失敗",
+    "forbidden": "被伺服器拒絕 (403)",
     "queued": "已加入佇列",
     "no_downloads": "沒有下載項目",
     "confirm_remove": "是否移除此下載項目？",
@@ -259,7 +265,9 @@
       "subsync": "字幕同步"
     },
     "transcode": {
-      "header": "轉碼設定"
+      "header": "轉碼設定",
+      "max_resolution": "最大轉碼解析度",
+      "resolution_limit": "同時限制直接播放"
     },
     "control": {
       "header": "播放控制",
@@ -324,8 +332,9 @@
       "font_a3": "將任意 ttf 檔案放到 {}/subfont.ttf"
     },
     "libraries": {
-      "header": "媒體庫",
-      "description": "重新排序或隱藏側邊欄標籤（媒體庫、播放清單、稍後觀看）。此設定會依伺服器分別儲存。",
+      "header": "側邊欄",
+      "description": "重新排序或隱藏側邊欄標籤。首頁和個人檔案保持固定。此設定會依伺服器分別儲存。",
+      "offline": "離線時只列出已下載的媒體庫，其他媒體庫保持原有位置。",
       "grab": "移動",
       "drop": "放下",
       "toggle": "顯示 / 隱藏",
@@ -358,6 +367,7 @@
         "keyboard": "鍵盤"
       },
       "config_dir": "設定檔目錄",
+      "config_reset": "設定檔無法讀取，已重設",
       "logout": "退出登入當前的帳號 \n(應用將會退出)",
       "up2date": "程式已經是最新版",
       "upgrade": "發現新版本 {}，是否更新？",
@@ -422,6 +432,7 @@
     "choose_type": "選擇連線類型",
     "switch_title": "連線",
     "add": "新增",
+    "dns_unresolved": "無法解析「{}」。在 Switch/Vita 上，請使用伺服器的 IPv4 位址（例如 http://192.168.1.50:8096）——不支援 .local（mDNS）與僅 IPv6 的名稱。",
     "jellyfin": {
       "title_jellyfin": "登入 Jellyfin",
       "title_emby": "登入 Emby",

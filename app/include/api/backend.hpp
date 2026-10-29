@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -62,7 +63,9 @@ struct PlaybackOptions {
     int64_t audioStreamId = 0;     // selected audio stream id (0 = default)
     int64_t subtitleStreamId = 0;  // selected subtitle stream id (0 = none)
     int64_t bitrateCap = 0;        // bps cap; <= 0 = direct play / auto
+    int maxHeight = 0;             // transcode output limit, a 16:9 box (media/resolution.hpp); 0 = none
     bool forceDirectPlay = false;
+    bool plainPartUrl = false;     // direct play on the bare part URL instead of the download one (Plex)
     bool burnSubtitles = false;
     std::string videoCodec = "h264";  // transcode target codec
     std::string sessionId;            // stable per-playback session id (X-Plex-Session-Identifier / PlaySessionId)
@@ -139,6 +142,15 @@ public:
         const std::string& hubKey, size_t start, size_t size, Then<Container<Item>> then, OnError error) = 0;
     /// Single item detail. `full` requests heavy includes (streams/chapters/markers).
     virtual void getItemDetail(const std::string& id, bool full, Then<Item> then, OnError error) = 0;
+    /// Library owning an item, for the offline catalog. Synchronous (download
+    /// worker thread), may throw. Empty key when unknown: Plex keeps this
+    /// default, its metadata already carries librarySectionID.
+    virtual Section sectionOfSync(const std::string& id) { return {}; }
+    /// Item fiche and direct children, for the offline catalog. Synchronous
+    /// (download worker thread), may throw. Backends without an offline
+    /// catalog (Stremio) keep these defaults: nothing is captured.
+    virtual std::optional<Item> getItemDetailSync(const std::string& id) { return std::nullopt; }
+    virtual std::vector<Item> getChildrenSync(const std::string& id) { return {}; }
     virtual void getChildren(const std::string& id, Then<Container<Item>> then, OnError error) = 0;
     /// Albums of a music artist. Hierarchical backends (Plex) resolve this like
     /// getChildren; Jellyfin/Emby must override (artists are virtual entities,

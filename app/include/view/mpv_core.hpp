@@ -72,6 +72,9 @@ public:
 
     std::unordered_map<std::string, mpv_node> getNodeMap(const std::string &key);
 
+    /// The mirror setting (0 off, 1 horizontal, 2 vertical), keeping the HDR re-tag filter (PS4).
+    void setMirror(int mirror);
+
     void togglePlay();
 
     void stop();
@@ -120,6 +123,12 @@ public:
     /// mpv error code of the last MPV_END_FILE_REASON_ERROR (0 = none). Kept so
     /// the OSD/error dialog can surface a concrete reason for bug reports.
     int last_error = 0;
+    /// First log lines since the load or the last restart ("prefix: text",
+    /// redacted): -13 covers every open failure, these carry its cause to the
+    /// playback-error dialog.
+    std::string last_error_line;  // first ERROR line, any prefix
+    std::string last_warn_line;   // first WARN line from ffmpeg/stream
+    uint64_t load_generation = 0;  // bumped on START_FILE: a deferred error of a previous load is ignored
 
     inline static bool DEBUG = false;
 
@@ -154,6 +163,8 @@ public:
 #endif
     inline static std::string VIDEO_CODEC = "h264";
     inline static int64_t VIDEO_QUALITY = 0;
+    inline static int MAX_RESOLUTION = 0;  // transcode height limit; 0 = auto
+    inline static bool RESOLUTION_LIMIT = false;  // also transcode direct play above MAX_RESOLUTION
 
     inline static bool FORCE_DIRECTPLAY = false;
 
@@ -176,6 +187,16 @@ private:
     bool video_paused = false;
     bool voEnabled = true;  // false in audio-only mode (music): keep playing when backgrounded
     int64_t cache_speed = 0;  // Bps
+
+#ifdef __PS4__
+    // HDR video (view/hdr_options.hpp): every file goes through a filter that re-tags it as SDR,
+    // in the chain from the start. While a PQ file plays, saturation and contrast are raised; the
+    // viewer's own values are kept here to put back when the file ends.
+    void applyHdrHandling();
+    bool hdr_active = false;
+    int hdr_base_saturation = 0;
+    int hdr_base_contrast = 0;
+#endif
 
 #ifdef MPV_SW_RENDER
     const int PIXCEL_SIZE = 4;

@@ -1,8 +1,7 @@
 /*
     GMCA — Plex video player.
     Verified pipeline: PLEX_MIGRATION.md §2.7.
-    Units: mpv positions in seconds, Plex API in milliseconds,
-    transcoder offset in whole seconds.
+    Units: mpv positions in seconds, Plex API in milliseconds.
 */
 
 #include <cstdlib>
@@ -10,6 +9,8 @@
 #include "activity/player_view.hpp"
 #include "api/plex.hpp"
 #include "api/backend.hpp"
+#include "api/media/forbidden.hpp"
+#include "api/media/resolution.hpp"
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
 #include "view/mpv_core.hpp"
@@ -50,9 +51,22 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
         PlayerSetting::showAudioMenu(&this->stream);
         return true;
     });
-    // transcode stream failed to play -> retry once in direct play before the
-    // error dialog (Vita hardware decode can reject the transcoded stream)
-    view->registerError([this](...) { return this->tryDirectPlayFallback(); });
+    // playback failed -> try the other delivery path once before the error
+    // dialog (Vita hardware decode can reject a transcoded stream, a server
+    // can refuse the raw part)
+    view->registerError([this](...) {
+        return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->explainRefusal() ||
+               this->tryTranscodeFallback();
+    });
+
+    // Repeat::One: reload from 0 rather than mpv loop-file, which loops back to
+    // the start= of a resumed load
+    view->registerReplay([this](...) {
+        MPVCore::instance().reset();
+        this->scrobbled = false;
+        this->playMedia(0);
+        return true;
+    });
 
     // stable session identifier (24 characters)
     this->sessionId = misc::randHex(12);
@@ -63,8 +77,8 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 
     playSubscribeID = view->getPlayEvent()->subscribe([this](int index) { this->playIndex(index); });
 
-    settingSubscribeID = view->getSettingEvent()->subscribe([]() {
-        brls::View* setting = new PlayerSetting();
+    settingSubscribeID = view->getSettingEvent()->subscribe([this]() {
+        brls::View* setting = new PlayerSetting(this->view);
         brls::Application::pushActivity(new brls::Activity(setting));
     });
 
@@ -224,13 +238,15 @@ void PlayerView::playMedia(const int64_t seekMs) {
     // Without it each reload orphaned a server-side session (verified on dev:
     // they stack up at ~0% progress and never free), starving new transcodes.
     this->stopTranscode();
-    // deliberate (re)start: allow the direct-play fallback to trigger again
+    // deliberate (re)start: allow the playback fallbacks to trigger again
     this->directPlayFallback = false;
+    this->transcodeFallback = false;
 
     // Fast path: the caller already resolved the exact source (Stremio source
-    // picker passes the fully-resolved item + chosen index). Re-fetching would
-    // re-resolve streams and could return a different order/set, silently playing
-    // a different release than the one selected — so play the chosen one directly.
+    // picker and movie version selector pass the fully-resolved item + chosen
+    // index). Re-fetching would re-resolve streams and could return a different
+    // order/set, silently playing a different release than the one selected — so
+    // play the chosen one directly.
     {
         auto accessible = [](const plex::Media& m) {
             for (auto& p : m.parts)
@@ -284,19 +300,33 @@ void PlayerView::playMedia(const int64_t seekMs) {
         });
 }
 
-void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect) {
+void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect, int64_t forceBitrate) {
     // We are about to (re)load: mpv will drop any sub-add'ed tracks. Clear the
     // loaded flag so a subtitle fetch landing mid-load waits for MPV_LOADED to
     // re-add. (External subtitles are resolved AFTER the playback task is queued
     // — see the note at the end of this function.)
     this->mpvLoaded = false;
 
+    this->lastSeekMs = seekMs;
+
     media::PlaybackOptions opts;
     opts.seekMs = seekMs;
-    opts.bitrateCap = MPVCore::VIDEO_QUALITY;
+    // a cap is what routes resolvePlayback through the transcoder, so the
+    // fallback needs one even when the user setting is 0 (auto)
+    opts.bitrateCap = forceBitrate > 0 ? forceBitrate
+                      : MPVCore::VIDEO_QUALITY > 0 ? MPVCore::VIDEO_QUALITY
+                                                   : this->fallbackBitrate;
     // forceDirect: the transcode->direct-play fallback re-resolves with direct
     // play forced (resolvePlayback returns the direct source when set).
     opts.forceDirectPlay = MPVCore::FORCE_DIRECTPLAY || forceDirect;
+    opts.maxHeight = MPVCore::MAX_RESOLUTION;
+#if defined(__PSV__)
+    // the Vita hardware H.264 decoder tops out at 1080p (scripts/vita/ffmpeg patch)
+    if (opts.maxHeight <= 0 || opts.maxHeight > 1080) opts.maxHeight = 1080;
+#endif
+    opts.bitrateCap = media::limitedBitrate(opts.bitrateCap, MPVCore::RESOLUTION_LIMIT,
+        AppConfig::instance().backend().caps().transcode, this->stream.width, this->stream.height, opts.maxHeight);
+    opts.plainPartUrl = this->plainPartUrl;
     opts.audioStreamId = PlayerSetting::selectedAudio;
     opts.subtitleStreamId = PlayerSetting::selectedSubtitle;
     opts.burnSubtitles = PlayerSetting::selectedSubtitle > 0;
@@ -412,15 +442,67 @@ bool PlayerView::tryDirectPlayFallback() {
     // only recover a failed transcode, and only once per (re)load
     if (this->playMethod != "transcode" || this->directPlayFallback) return false;
     this->directPlayFallback = true;
+    this->transcodeFallback = true;
 
-    int64_t pos = int64_t(mpv.playback_time) * 1000;  // read before reset() zeroes it
+    // read before reset() zeroes it; an open failure leaves playback_time at 0
+    int64_t pos = mpv.playback_time > 0 ? int64_t(mpv.playback_time) * 1000 : this->lastSeekMs;
     brls::Logger::error("PlayerView: transcode playback failed ({}) — falling back to direct play at {} ms",
         mpv.getError(), pos);
     mpv.reset();            // release the (Vita hardware) decoder held by the failed stream
     this->stopTranscode();  // drop the dead transcode session server-side
     this->startPlayback(pos, /*forceDirect=*/true);  // re-resolve, forcing direct play
-    // surface the reason to the user too, so bug reports carry the mpv code
     brls::Application::notify(fmt::format("{} ({})", "main/player/direct_fallback"_i18n, mpv.getError()));
+    return true;  // handled: no error dialog
+}
+
+bool PlayerView::tryPlainUrlFallback() {
+    auto& mpv = MPVCore::instance();
+    if (this->playMethod != "directplay" || this->plainPartUrl) return false;
+    if (AppConfig::instance().backend().type() != media::BackendType::Plex) return false;
+    if (this->item.type == media::mediaTypeTrack) return false;
+    this->plainPartUrl = true;
+
+    // read before reset() zeroes it; an open failure leaves playback_time at 0
+    int64_t pos = mpv.playback_time > 0 ? int64_t(mpv.playback_time) * 1000 : this->lastSeekMs;
+    brls::Logger::error("PlayerView: direct playback failed ({}) — retrying the bare part URL at {} ms",
+        mpv.getError(), pos);
+    mpv.reset();
+    this->startPlayback(pos, /*forceDirect=*/true);
+    return true;  // handled: no error dialog
+}
+
+bool PlayerView::explainRefusal() {
+    if (AppConfig::instance().backend().type() != media::BackendType::Plex) return false;
+    std::string reason = MPVCore::instance().getError();
+    if (!media::isForbidden(reason)) return false;
+    brls::Logger::error("PlayerView: playback refused by the server ({})", reason);
+    auto dialog = new brls::Dialog(fmt::format("{}\n({})", "main/player/plex_forbidden"_i18n, reason));
+    dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+    dialog->open();
+    return true;  // handled: no generic error dialog
+}
+
+bool PlayerView::tryTranscodeFallback() {
+    auto& mpv = MPVCore::instance();
+    // only recover a failed direct play, and only once per (re)load
+    if (this->playMethod != "directplay" || this->transcodeFallback) return false;
+    // music excluded: the Plex audio transcode path falls back to direct play
+    // on any doubt, so it would replay the same URL
+    if (MPVCore::FORCE_DIRECTPLAY) return false;
+    if (!AppConfig::instance().backend().caps().transcode) return false;
+    if (this->item.type == media::mediaTypeTrack) return false;
+    this->transcodeFallback = true;
+    this->directPlayFallback = true;
+
+    // read before reset() zeroes it; an open failure leaves playback_time at 0
+    int64_t pos = mpv.playback_time > 0 ? int64_t(mpv.playback_time) * 1000 : this->lastSeekMs;
+    brls::Logger::error("PlayerView: direct playback failed ({}) — falling back to transcode at {} ms",
+        mpv.getError(), pos);
+    mpv.reset();
+    // 8 Mbps: a preset of the in-player quality menu, enough for 1080p
+    this->fallbackBitrate = 8000000;
+    this->startPlayback(pos, /*forceDirect=*/false, this->fallbackBitrate);
+    brls::Application::notify(fmt::format("{} ({})", "main/player/transcode_fallback"_i18n, mpv.getError()));
     return true;  // handled: no error dialog
 }
 
@@ -477,11 +559,12 @@ bool PlayerView::toggleQuality() {
 
     brls::Dropdown* dropdown = new brls::Dropdown(
         "main/player/quality"_i18n, options,
-        [values](int selected) {
+        [this, values](int selected) {
             MPVCore::VIDEO_QUALITY = values[selected];
             // remember the choice across launches (Vita users had to re-lower
             // it every session otherwise — see config.cpp default)
             AppConfig::instance().setItem(AppConfig::PLAYER_VIDEO_QUALITY, MPVCore::VIDEO_QUALITY);
+            this->fallbackBitrate = 0;
             MPVCore::instance().getCustomEvent()->fire(QUALITY_CHANGE, nullptr);
             return true;
         },

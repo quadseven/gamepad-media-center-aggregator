@@ -71,15 +71,11 @@ char __attribute__((optimize("no-optimize-sibling-calls"))) * sce_strdup(const c
 #define CURL_PROGRESSFUNC_CONTINUE 0x10000001
 #endif
 
-class curl_error : public std::exception {
-public:
-    explicit curl_error(CURLcode code) : m(curl_easy_strerror(code)) {}
-    explicit curl_error(const std::string& arg) : m(arg) {}
-    const char* what() const noexcept override { return m.c_str(); }
-
-private:
-    std::string m;
-};
+static HTTP::Error curl_error(CURLcode code) {
+    auto kind = code == CURLE_COULDNT_RESOLVE_HOST ? HTTP::ErrorKind::ResolveFailed : HTTP::ErrorKind::Other;
+    return HTTP::Error(kind, curl_easy_strerror(code));
+}
+static HTTP::Error curl_error(const std::string& arg) { return HTTP::Error(HTTP::ErrorKind::Other, arg); }
 
 static std::string user_agent =
     fmt::format("{}/{} ({})", AppVersion::getPackageName(), AppVersion::getVersion(), AppVersion::getPlatform());
@@ -158,6 +154,8 @@ HTTP::~HTTP() {
     if (this->chunk != nullptr) curl_slist_free_all(this->chunk);
     if (this->easy != nullptr) curl_easy_cleanup(this->easy);
 }
+
+const std::string& HTTP::default_user_agent() { return user_agent; }
 
 void HTTP::set_user_agent(const std::string& agent) { curl_easy_setopt(this->easy, CURLOPT_USERAGENT, agent.c_str()); }
 

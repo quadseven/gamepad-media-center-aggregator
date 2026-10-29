@@ -48,9 +48,14 @@
     "prev": "Trước",
     "next": "Sau",
     "error": "Lỗi trong khi phát",
+    "plex_forbidden": "Plex từ chối phát ngoài mạng cục bộ của máy chủ khi không có Plex Pass hoặc Remote Watch Pass (HTTP 403).",
     "direct_fallback": "Chuyển mã thất bại, đang phát trực tiếp",
+    "transcode_fallback": "Phát trực tiếp thất bại, đang chuyển mã",
     "episode": "Tập",
-    "speed_up": "Tốc độ hiện tại {}"
+    "speed_up": "Tốc độ hiện tại {}",
+    "repeat": "Lặp lại",
+    "repeat_one": "Video này",
+    "repeat_all": "Toàn bộ danh sách"
   },
   "media": {
     "sort": "Sắp xếp",
@@ -190,6 +195,7 @@
     "eta": "còn {}",
     "completed": "Đã tải xuống",
     "failed": "Tải xuống thất bại",
+    "forbidden": "Bị máy chủ từ chối (403)",
     "queued": "Trong hàng đợi",
     "no_downloads": "Không có bản tải",
     "confirm_remove": "Xóa bản tải này?",
@@ -259,7 +265,9 @@
       "subsync": "Đồng bộ phụ đề"
     },
     "transcode": {
-      "header": "Chuyển mã"
+      "header": "Chuyển mã",
+      "max_resolution": "Độ phân giải chuyển mã tối đa",
+      "resolution_limit": "Giới hạn cả phát trực tiếp"
     },
     "control": {
       "header": "Điều khiển phát lại",
@@ -324,8 +332,9 @@
       "font_a3": "Đặt bất kỳ tệp ttf nào vào {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Thư viện",
-      "description": "Sắp xếp lại và ẩn các thẻ ở thanh bên (thư viện, danh sách phát, danh sách theo dõi). Cài đặt này được lưu riêng cho từng máy chủ.",
+      "header": "Thanh bên",
+      "description": "Sắp xếp lại và ẩn các thẻ ở thanh bên. Nhà và hồ sơ giữ nguyên vị trí. Cài đặt này được lưu riêng cho từng máy chủ.",
+      "offline": "Khi ngoại tuyến, chỉ các thư viện đã tải xuống được liệt kê; các thư viện khác giữ nguyên vị trí.",
       "grab": "Di chuyển",
       "drop": "Thả",
       "toggle": "Hiện / Ẩn",
@@ -358,6 +367,7 @@
         "keyboard": "Bàn phím"
       },
       "config_dir": "Thư mục cấu hình",
+      "config_reset": "Không đọc được tệp cấu hình, đã đặt lại",
       "logout": "Đăng xuất khỏi tài khoản hiện tại \n(ứng dụng sẽ thoát)",
       "up2date": "Bạn đang sử dụng phiên bản mới nhất",
       "upgrade": "{} hiện đã có! Bạn đã sẵn sàng để cập nhật chưa?",
@@ -422,6 +432,7 @@
     "choose_type": "Chọn loại kết nối",
     "switch_title": "Kết nối",
     "add": "Thêm",
+    "dns_unresolved": "Không thể phân giải “{}”. Trên Switch/Vita, hãy dùng địa chỉ IPv4 của máy chủ (ví dụ: http://192.168.1.50:8096) — tên .local (mDNS) và chỉ IPv6 không được hỗ trợ.",
     "jellyfin": {
       "title_jellyfin": "Đăng nhập vào Jellyfin",
       "title_emby": "Đăng nhập vào Emby",

@@ -34,6 +34,8 @@ public:
         media::Then<media::Container<media::Item>> then, media::OnError error) override;
     void getItemDetail(const std::string& id, bool full, media::Then<media::Item> then, media::OnError error) override;
     void getChildren(const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) override;
+    std::optional<media::Item> getItemDetailSync(const std::string& id) override;
+    std::vector<media::Item> getChildrenSync(const std::string& id) override;
     void getArtistTracks(
         const std::string& artistId, media::Then<media::Container<media::Item>> then, media::OnError error) override;
     void getAllEpisodes(const std::string& showId, bool includeStreams,
@@ -83,7 +85,7 @@ public:
 
 private:
     /// Direct-play source from the chosen Media version (Part.key + token).
-    media::PlaybackSource directSource(const media::Media& version, int64_t seekMs) const;
+    media::PlaybackSource directSource(const media::Media& version, int64_t seekMs, bool download) const;
 };
 
 }  // namespace plex

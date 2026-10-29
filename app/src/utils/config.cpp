@@ -44,9 +44,11 @@ constexpr uint32_t MINIMUM_WINDOW_HEIGHT = 360;
 #include "api/plex/auth.hpp"
 #include "api/backend.hpp"
 #include "api/plex/backend.hpp"
+#include "api/jellyfin/auth.hpp"
 #include "api/jellyfin/backend.hpp"
 #include "api/stremio/backend.hpp"
 #include "api/http.hpp"
+#include "utils/atomic_file.hpp"
 #include "utils/config.hpp"
 #include "utils/theme_palette.hpp"
 #include "utils/keybind.hpp"
@@ -70,6 +72,13 @@ std::unordered_map<AppConfig::Item, AppConfig::Option> AppConfig::settingMap = {
     {TRANSCODEC, {"transcodec", {"h264", "hevc", "av1"}}},
     {FORCE_DIRECTPLAY, {"force_directplay"}},
     {PLAYER_VIDEO_QUALITY, {"player_video_quality"}},
+    {PLAYER_MAX_RESOLUTION,
+        {
+            "player_max_resolution",
+            {"Auto", "4K", "1440p", "1080p", "720p", "480p"},
+            {0, 2160, 1440, 1080, 720, 480},
+        }},
+    {PLAYER_RESOLUTION_LIMIT, {"player_resolution_limit"}},
     {FULLSCREEN, {"fullscreen"}},
     {OSD_ON_TOGGLE, {"osd_on_toggle"}},
     {TOUCH_GESTURE, {"touch_gesture"}},
@@ -268,19 +277,23 @@ bool AppConfig::init() {
     this->migratedFromLegacy = migrateLegacyConfigDir(dataDir("pleNx"), this->configDir());
     this->migratedFromLegacy |= migrateLegacyConfigDir(dataDir("Switchlex"), this->configDir());
     const std::string path = this->configDir() + "/config.json";
-#if !defined(USE_BOOST_FILESYSTEM) || defined(_WIN32)
-    std::ifstream f(fs::u8path(path));
-#else
-    std::ifstream f(path);
-#endif
-    if (f.is_open()) {
-        try {
-            nlohmann::json::parse(f).get_to(*this);
+    // get_to may have half-applied a rejected config: restore the defaults
+    const nlohmann::json defaults = *this;
+    try {
+        std::string raw;
+        if (AtomicFile::read(path, raw)) {
+            nlohmann::json::parse(raw).get_to(*this);
             brls::Logger::info("Load config from: {}", path);
-        } catch (const std::exception& ex) {
-            brls::Logger::error("AppConfig::load: {}", ex.what());
-            return false;
         }
+    } catch (const std::exception& ex) {
+        brls::Logger::error("AppConfig::load {}: {}", path, ex.what());
+        defaults.get_to(*this);
+        try {
+            brls::Logger::warning("AppConfig: unreadable config moved to {}", AtomicFile::quarantine(path));
+        } catch (const std::exception& e) {
+            brls::Logger::warning("AppConfig: cannot move {} aside: {}", path, e.what());
+        }
+        brls::sync([]() { brls::Application::notify(brls::getStr("main/setting/others/config_reset")); });
     }
 
 #if defined(_WIN32) && !defined(_WINRT_)
@@ -381,13 +394,22 @@ bool AppConfig::init() {
     // default transcode bitrate cap. The Vita decoder chokes on heavy direct
     // play (high-bitrate / unsupported codecs -> slideshow), so default to a
     // smooth 4 Mbps H.264 transcode; "Auto" (0 = direct play) stays selectable
-    // in the player quality menu. Other platforms default to direct play.
+    // in the player quality menu. Other platforms default to direct play (the
+    // Switch still transcodes sources above its max resolution, below).
     // Persisted now (it was reset every launch, so the user's lowered choice
     // never survived a restart).
 #if defined(__PSV__)
     MPVCore::VIDEO_QUALITY = this->getItem(PLAYER_VIDEO_QUALITY, (int64_t)4000000);
 #else
     MPVCore::VIDEO_QUALITY = this->getItem(PLAYER_VIDEO_QUALITY, (int64_t)0);
+#endif
+    // sources above 1080p overwhelm the Switch: transcode them down by default
+#if defined(__SWITCH__)
+    MPVCore::MAX_RESOLUTION = this->getItem(PLAYER_MAX_RESOLUTION, 1080);
+    MPVCore::RESOLUTION_LIMIT = this->getItem(PLAYER_RESOLUTION_LIMIT, true);
+#else
+    MPVCore::MAX_RESOLUTION = this->getItem(PLAYER_MAX_RESOLUTION, 0);
+    MPVCore::RESOLUTION_LIMIT = this->getItem(PLAYER_RESOLUTION_LIMIT, false);
 #endif
     MPVCore::VIDEO_CODEC = this->getItem(TRANSCODEC, MPVCore::VIDEO_CODEC);
     MPVCore::AUDIO_CHANNELS = this->getItem(AUDIO_CHANNELS, MPVCore::AUDIO_CHANNELS);
@@ -534,16 +556,7 @@ void AppConfig::save() {
     try {
         std::string dir = this->configDir();
         fs::create_directories(dir);
-#if !defined(USE_BOOST_FILESYSTEM) || defined(_WIN32)
-        std::ofstream f(fs::u8path(dir + "/config.json"));
-#else
-        std::ofstream f(dir + "/config.json");
-#endif
-        if (f.is_open()) {
-            nlohmann::json j(*this);
-            f << j.dump(2);
-            f.close();
-        }
+        AtomicFile::write(dir + "/config.json", nlohmann::json(*this).dump(2));
     } catch (const std::exception& ex) {
         brls::Logger::warning("AppConfig save: {}", ex.what());
     }
@@ -564,6 +577,17 @@ media::Backend& AppConfig::backend() {
             if (!this->server_url.empty() && !s.urls.empty() && s.urls.front() == this->server_url) {
                 type = s.type;
                 break;
+            }
+        }
+        // offline server_url is empty (never persisted, and checkLogin found no
+        // reachable endpoint): the active user's server instead
+        if (this->server_url.empty()) {
+            auto u = std::find_if(this->users.begin(), this->users.end(),
+                [this](const AppUser& u) { return u.id == this->user_id; });
+            if (u != this->users.end()) {
+                auto s = std::find_if(this->servers.begin(), this->servers.end(),
+                    [&u](const AppServer& s) { return s.id == u->server_id; });
+                if (s != this->servers.end()) type = s->type;
             }
         }
         switch (backendTypeFromString(type)) {
@@ -589,6 +613,23 @@ media::BackendType AppConfig::backendTypeFromString(const std::string& type) {
     if (type == "emby") return media::BackendType::Emby;
     if (type == "stremio") return media::BackendType::Stremio;
     return media::BackendType::Plex;
+}
+
+std::string AppConfig::reachableUrl(const AppServer& s) {
+    // The candidates are raced in parallel so an unreachable LAN address does
+    // not block a reachable remote/relay one while roaming (GH #36). Stremio has
+    // no single reachable "server" (it aggregates remote addons + an optional
+    // account); skip the probe, accept the stored one.
+    switch (backendTypeFromString(s.type)) {
+        case media::BackendType::Stremio:
+            return s.urls.empty() ? std::string() : s.urls.front();
+        case media::BackendType::Jellyfin:
+        case media::BackendType::Emby:
+            return plex::raceConnections(s.urls, [](const std::string& url) { return jellyfin::probeConnection(url); });
+        case media::BackendType::Plex:
+            break;
+    }
+    return plex::raceConnections(s.urls, s.access_token);
 }
 
 const std::vector<std::string>& AppConfig::getStremioAddons() const {
@@ -620,12 +661,8 @@ bool AppConfig::checkLogin() {
     if (it == this->servers.end() || it->urls.empty()) return false;
 
     // Reconnect to a remembered endpoint. No dependency on plex.tv here: a
-    // reachable stored URL is enough. The candidates are raced in parallel so an
-    // unreachable LAN address no longer blocks a reachable remote/relay one while
-    // roaming (GH #36). Stremio has no single reachable "server" (it aggregates
-    // remote addons + an optional account); skip the probe, accept the stored one.
-    std::string url = it->type == "stremio" ? (it->urls.empty() ? std::string() : it->urls.front())
-                                            : plex::raceConnections(it->urls, it->access_token);
+    // reachable stored URL is enough.
+    std::string url = reachableUrl(*it);
     if (url.empty()) {
         brls::Logger::warning("AppConfig checkLogin: aucun endpoint joignable pour {}", it->name);
         return false;

@@ -48,9 +48,14 @@
     "prev": "Anterior",
     "next": "Seguinte",
     "error": "Erro de reprodução",
+    "plex_forbidden": "O Plex recusa a reprodução fora da rede local do servidor sem Plex Pass ou Remote Watch Pass (HTTP 403).",
     "direct_fallback": "Falha na transcodificação, reprodução direta",
+    "transcode_fallback": "Falha na reprodução direta, transcodificando",
     "episode": "Episódio",
-    "speed_up": "Velocidade atual {}"
+    "speed_up": "Velocidade atual {}",
+    "repeat": "Repetir",
+    "repeat_one": "Este vídeo",
+    "repeat_all": "Lista inteira"
   },
   "media": {
     "sort": "Ordenar",
@@ -190,6 +195,7 @@
     "eta": "{} restante",
     "completed": "Transferido",
     "failed": "Transferência falhada",
+    "forbidden": "Recusado pelo servidor (403)",
     "queued": "Em fila",
     "no_downloads": "Sem transferências",
     "confirm_remove": "Remover esta transferência?",
@@ -259,7 +265,9 @@
       "subsync": "Sincronização de legendas"
     },
     "transcode": {
-      "header": "Transcodificação"
+      "header": "Transcodificação",
+      "max_resolution": "Resolução máxima da transcodificação",
+      "resolution_limit": "Limitar também a reprodução direta"
     },
     "control": {
       "header": "Controlo de reprodução",
@@ -324,8 +332,9 @@
       "font_a3": "Coloque qualquer ficheiro ttf em {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliotecas",
-      "description": "Reordene e oculte as abas da barra lateral (bibliotecas, playlists, lista de interesses). Esta definição é guardada por servidor.",
+      "header": "Barra lateral",
+      "description": "Reordene e oculte as abas da barra lateral. O Início e o perfil ficam no lugar. Esta definição é guardada por servidor.",
+      "offline": "Offline, só são listadas as bibliotecas transferidas; as restantes mantêm o seu lugar.",
       "grab": "Mover",
       "drop": "Soltar",
       "toggle": "Mostrar / Ocultar",
@@ -358,6 +367,7 @@
         "keyboard": "Teclado"
       },
       "config_dir": "Diretório de configuração",
+      "config_reset": "O arquivo de configuração estava ilegível e foi redefinido",
       "logout": "Terminar sessão da conta atual \n(a aplicação será fechada)",
       "up2date": "A aplicação está atualizada",
       "upgrade": "{} já está disponível! Quer atualizar?",
@@ -422,6 +432,7 @@
     "choose_type": "Escolha o tipo de ligação",
     "switch_title": "Ligações",
     "add": "Adicionar",
+    "dns_unresolved": "Não foi possível resolver “{}”. No Switch/Vita, use o endereço IPv4 do seu servidor (ex.: http://192.168.1.50:8096) — nomes .local (mDNS) e apenas IPv6 não são suportados.",
     "jellyfin": {
       "title_jellyfin": "Iniciar sessão no Jellyfin",
       "title_emby": "Iniciar sessão no Emby",

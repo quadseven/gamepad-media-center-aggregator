@@ -1,4 +1,5 @@
 #include "tab/download_tab.hpp"
+#include "api/media/forbidden.hpp"
 #include "tab/remote_view.hpp"
 #include "view/recycling_grid.hpp"
 #include "view/svg_image.hpp"
@@ -10,7 +11,9 @@
 #include "utils/config.hpp"
 #include "utils/dialog.hpp"
 #include "utils/image.hpp"
+#include "utils/image_cache.hpp"
 #include "utils/misc.hpp"
+#include "utils/network_state.hpp"
 
 #include <algorithm>
 
@@ -228,16 +231,12 @@ public:
         this->progressTrack->addView(this->progressBar);
     }
 
-    // The thumb load is async on GXM (withLocal): drop any in-flight request
-    // and reset to the placeholder before this cell is reused for another row,
-    // else a late completion would paint the previous item's poster. Matches
-    // the media grid cells (media_series/media_movie).
+    // The thumb load can be async (remote poster, withLocal on GXM): drop any
+    // in-flight request and reset to the placeholder before this cell is reused
+    // for another row, else a late completion would paint the previous item's
+    // poster. Matches the media grid cells (media_series/media_movie).
     void prepareForReuse() override { this->thumb->setImageFromRes("img/video-card-bg.png"); }
-    void cacheForReuse() override {
-#ifdef BOREALIS_USE_GXM
-        Image::cancel(this->thumb);
-#endif
-    }
+    void cacheForReuse() override { Image::cancel(this->thumb); }
 
     void setItem(const DownloadItem& item, const std::string& downloadDir) {
         auto theme = brls::Application::getTheme();
@@ -247,14 +246,18 @@ public:
         if (fs::exists(thumbPath)) {
 #ifdef BOREALIS_USE_GXM
             // GXM: decode+downscale+DXT to the 76x114 card size instead of
-            // uploading thumb.png at its native resolution, uncompressed. The
-            // thumbnail is fetched with no resize (download.cpp) so it can be a
-            // full-size poster — the same GPU-memory concern as Image::load.
-            // withLocal is async, so cancel on reuse (cacheForReuse below).
+            // uploading thumb.png at its native resolution, uncompressed:
+            // thumb.png can be a full-size poster (absolute Stremio URLs are
+            // not resized server-side, older downloads), the same GPU-memory
+            // concern as Image::load. withLocal is async, so cancel on reuse
+            // (cacheForReuse below).
             Image::withLocal(this->thumb, thumbPath, 76, 114);
 #else
             this->thumb->setImageFromFile(thumbPath);
 #endif
+        } else if (!NetworkState::isOffline() || ImageCache::has(item.thumb)) {
+            // queued, or started before its thumb.png landed: the server's (or cached) poster
+            Image::load(this->thumb, item.thumb, 225);
         }
 
         // title = episode or movie name; subtitle = "Show · SxEy" or year,
@@ -297,7 +300,8 @@ public:
             }
             break;
         case DownloadStatus::Failed:
-            this->status->setText("main/download/failed"_i18n);
+            this->status->setText(media::isForbidden(item.errorMessage) ? "main/download/forbidden"_i18n
+                                                                        : "main/download/failed"_i18n);
             this->status->setTextColor(theme.getColor("color/danger"));
             break;
         }
